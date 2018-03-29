@@ -1,0 +1,33 @@
+---
+version: '2.0'
+
+ha_firmware.validateInterface:
+  input:
+    - username
+    - password
+    - mgmt_ip
+    - intf_type
+    - intf_name
+    - intf_state
+  tasks:
+    validateInt:
+      # [105, 26]
+      action: network_essentials.validate_interface_state
+      input:
+        mgmt_ip: <% $.mgmt_ip %>
+        username: <% $.username %>
+        password: <% $.password %>
+        intf_type: <% $.intf_type %>
+        intf_name: <% $.intf_name %>
+        intf_state: <% $.intf_state %>
+      publish:
+        myUplinkStateBool: <% task(validateInt).result.result.state %> 
+      on-success:
+        - reportError: <% $.myUplinkStateBool = false %>
+    reportError:
+      # [105, 128]
+      action: core.local
+      input:
+        cmd: 'logger "FirmwareUpdate:Error: <% $.intf_type %><% $.intf_name %> down on <% $.mgmt_ip %>"'
+      on-success:
+        - fail

@@ -1,0 +1,48 @@
+{
+  "runner_type": "mistral-v2",
+  "name": "upgradeFirmwareMistral",
+  "parameters": {
+    "skip_notify": {
+      "default": [],
+      "type": "array",
+      "description": "List of tasks to skip notifications for."
+    },
+    "task": {
+      "type": "string",
+      "description": "The name of the task to run for reverse workflow."
+    },
+    "Sheet": {
+      "default": "GroupA",
+      "enum": [
+        "GroupA",
+        "GroupB",
+        "GroupC"
+      ],
+      "type": "string",
+      "description": "The Sheet Name"
+    },
+    "workflow": {
+      "type": "string",
+      "description": "The name of the workflow to run if the entry_point is a workbook of many workflows. The name should be in the format \"<pack_name>.<action_name>.<workflow_name>\". If entry point is a workflow or a workbook with a single workflow, the runner will identify the workflow automatically."
+    },
+    "context": {
+      "default": {},
+      "type": "object",
+      "description": "Additional workflow inputs."
+    },
+    "excelFileName": {
+      "default": "/home/stanley/firmwareVersions.xlsx",
+      "type": "string",
+      "description": "/home/stanley/firmwareVersions.xlsx"
+    }
+  },
+  "tags": [],
+  "enabled": true,
+  "entry_point": "workflows/upgradeFirmwareMistral.yaml",
+  "notify": {},
+  "uid": "action:ha_firmware:upgradeFirmwareMistral",
+  "pack": "ha_firmware",
+  "ref": "ha_firmware.upgradeFirmwareMistral",
+  "description": "upgrade the firmware"
+}
+

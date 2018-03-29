@@ -1,0 +1,47 @@
+{
+  "runner_type": "mistral-v2",
+  "name": "testUpgradeMist",
+  "parameters": {
+    "skip_notify": {
+      "default": [],
+      "type": "array",
+      "description": "List of tasks to skip notifications for."
+    },
+    "task": {
+      "type": "string",
+      "description": "The name of the task to run for reverse workflow."
+    },
+    "switchIP": {
+      "required": true,
+      "type": "string",
+      "description": "The IP address of the switch's management IPv4 address"
+    },
+    "workflow": {
+      "type": "string",
+      "description": "The name of the workflow to run if the entry_point is a workbook of many workflows. The name should be in the format \"<pack_name>.<action_name>.<workflow_name>\". If entry point is a workflow or a workbook with a single workflow, the runner will identify the workflow automatically."
+    },
+    "context": {
+      "default": {},
+      "type": "object",
+      "description": "Additional workflow inputs."
+    },
+    "upgradeGroup": {
+      "default": "GroupA",
+      "type": "string",
+      "description": "The Excel file's sheet name that relates to the upgrade group"
+    },
+    "excelFileName": {
+      "default": "/home/stanley/firmwareVersions.xlsx",
+      "type": "string",
+      "description": "The Excel file name"
+    }
+  },
+  "tags": [],
+  "enabled": true,
+  "entry_point": "workflows/testUpgradeMist.yaml",
+  "notify": {},
+  "uid": "action:ha_firmware:testUpgradeMist",
+  "pack": "ha_firmware",
+  "ref": "ha_firmware.testUpgradeMist",
+  "description": "Test that the switch interfaces are connected as expected and the switch is a member of the fabric and can ping IPs on the network."
+}

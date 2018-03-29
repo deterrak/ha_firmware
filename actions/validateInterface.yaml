@@ -1,0 +1,61 @@
+{
+  "runner_type": "mistral-v2",
+  "name": "validateInterface",
+  "parameters": {
+    "skip_notify": {
+      "default": [],
+      "type": "array",
+      "description": "List of tasks to skip notifications for."
+    },
+    "username": {
+      "default": "admin",
+      "type": "string",
+      "description": "Switch username"
+    },
+    "password": {
+      "default": "password",
+      "type": "string",
+      "description": "Switch password"
+    },
+    "task": {
+      "type": "string",
+      "description": "The name of the task to run for reverse workflow."
+    },
+    "context": {
+      "default": {},
+      "type": "object",
+      "description": "Additional workflow inputs."
+    },
+    "mgmt_ip": {
+      "required": true,
+      "type": "string",
+      "description": "The Management IP address of the switch."
+    },
+    "workflow": {
+      "type": "string",
+      "description": "The name of the workflow to run if the entry_point is a workbook of many workflows. The name should be in the format \"<pack_name>.<action_name>.<workflow_name>\". If entry point is a workflow or a workbook with a single workflow, the runner will identify the workflow automatically."
+    },
+    "intf_type": {
+      "required": true,
+      "type": "string",
+      "description": "Interface type"
+    },
+    "intf_name": {
+      "type": "string",
+      "description": "Interface name"
+    },
+    "intf_state": {
+      "default": "up",
+      "type": "string",
+      "description": "Interface state"
+    }
+  },
+  "tags": [],
+  "enabled": true,
+  "entry_point": "workflows/validateInterface.yaml",
+  "notify": {},
+  "uid": "action:ha_firmware:validateInterface",
+  "pack": "ha_firmware",
+  "ref": "ha_firmware.validateInterface",
+  "description": "validate each interface"
+}

@@ -1,0 +1,254 @@
+#!/usr/bin/expect -f
+#
+# This script has been tested upgrading from version 5.0.1a to 6.0.2e!
+# Some upgrade paths are known to be incompatible especially 5.0.1a to 6.0.2b.
+# Ensure upgrade path compatiblity before using in a production environment.
+#
+# This script requires that switch login and sftp server logins be the same.
+# This script requires that the upgrade package be untarred in /tftpboot on the target server
+#
+# If the correct number of arguements was not passed in, please exit.
+if { $argc != 8 } {
+   puts "Usage: updater.exp <vdx-ip> <tftp-server-ip> <version> <username> <password> <VRF> <SFTP_USERNAME> <SFTP_PASSWORD>"
+   exit 99
+}
+
+proc exitJson { exitLevel message } {
+	send_user "\n\"Error\": \"$message\"\n"
+	send_user "\}\n"
+	send_log "SCRIPT: exiting the script\n"
+	send "\nexit\n"
+	exit $exitLevel
+}
+
+proc addJson { key value } {
+        send_user "\n\"$key\": \"$value\","
+}
+
+proc logandstderr { message } {
+	send_log "$message\n"
+	send_error "$message\n"
+}
+
+set timeout 450
+set PROMPT {\S+#\s}
+set SCRIPT_VERSION "0.1"
+set TARGET_IP [lindex $argv 0 ]
+set FILESERVER [lindex $argv 1 ]
+set TARGET_VERSION [lindex $argv 2]
+set USERNAME [lindex $argv 3]
+set PASSWORD [lindex $argv 4]
+set SFTP_USERNAME [lindex $argv 5]
+set SFTP_PASSWORD [lindex $argv 6]
+set VRF [lindex $argv 7]
+log_user 0
+# Login to the first node in the cluster
+
+set LOGFILE "/home/stanley/updateFirmwareLogs/$TARGET_IP.log"
+log_file -a -noappend $LOGFILE
+send_user "{"
+addJson "ScriptVersion" $SCRIPT_VERSION
+addJson "SwitchIP" $TARGET_IP
+addJson "TargetFirmware" $TARGET_VERSION
+addJson "Logfile" $LOGFILE
+
+set LOGGEDIN "False"
+
+spawn ssh $USERNAME@$TARGET_IP
+
+
+# DETERRAK - Added first time SSH authentication
+expect {
+        -re "password:" 
+	{
+                send "$PASSWORD\n"
+                send_log "\nSCRIPT: logging in using the provided password\n"
+		expect -re "$PROMPT"
+		set LOGGEDIN "True"
+        }
+        -re "yes/no" 
+	{
+                send "yes\n"
+                send_log "\nSCRIPT: Logging in using SSH for the first time!\n"
+                expect "password:"
+                send "$PASSWORD\n"
+		expect -re "$PROMPT"
+		set LOGGEDIN "True"
+        }
+	timeout 
+	{
+		logandstderr "\nSCRIPT_ERROR: login timeout. Exiting\n"
+		exitJson 1 "login timeout"
+	}
+}
+addJson "LoggedIn" $LOGGEDIN
+
+# set the terminal monitor so we can see the debug messages.
+send "terminal monitor\n"
+expect -re "$PROMPT"
+send_log "\nSCRIPT: Setting the terminal monitor\n"
+
+# Set the terminal lenght so we don't time out waiting for prompts
+send "terminal length 0\n"
+send_log "\nSCRIPT: Setting the terminal length to '0'\n"
+expect  { 
+	-re "$PROMPT" 
+	{
+		send "\n"
+	}
+	"syntax error"	
+	{
+		logandstderr "\nSCRIPT_ERROR: The CLI for setting the terminal length has changed. Exiting"
+		exitJson 1 "cli_syntax_error"
+	}
+}
+
+# Assume the fileserver is not reachable, then set to true if it is reachable.
+set REACHABLE "False"
+send_log "\nSCRIPT: tesing IP connection to the fileserver\n"
+send "ping $FILESERVER vrf mgmt-vrf count 1\n"
+
+expect {
+	-re "0% packet loss" 
+	{
+		set REACHABLE "True"
+		send_log "\nSCRIPT: File Server $FILESERVER is reachable!\n"
+		expect -re "$PROMPT" 
+	}
+	-re "syntax error"	
+	{
+		logandstderr "\nSCRIPT_ERROR: the CLI for ping has changed. Exiting"
+		exitJson 1 "cli_syntax_error"
+	}
+	timeout 
+	{
+		logandstderr "\nSCRIPT_ERROR: Timeout, File Server $FILESERVER is not reachable. Exiting\n"
+		exitJson 1 "timeout"
+	}
+}
+
+addJson "FileServerReachable" $REACHABLE
+
+# Get the current NOS version.
+send "show version | include System\\ Version\n"
+expect -re "$PROMPT"
+set TEMP [lindex $expect_out(buffer) 9] 
+set CURRENT_VERSION ""
+append CURRENT_VERSION "nos" $TEMP
+
+addJson "CurrentFirmware" $CURRENT_VERSION
+send_log "\nSCRIPT: Running CURRENT_VERSION = $CURRENT_VERSION \n"
+send_log "\nSCRIPT: Updating to TARGET_VERSION = $TARGET_VERSION \n"
+
+set result [regexp {[A-Za-z]+([0-9]).([0-9]+).([0-9a-z]+)} $CURRENT_VERSION match major minor revision ]
+
+if { $result == 0 } {
+        puts "problem parsing CURRENT_VERSION $CURRENT_VERSION"
+exit
+}
+
+
+# Adjust the download command if it is NOS version 6
+if { $major == 6 } {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 6\n"
+        addJson "Debug" "v6"
+	set CMD "firmware download sftp coldboot directory NOS file $TARGET_VERSION host $FILESERVER user $SFTP_USERNAME"
+} elseif { $major == 7  && $minor == 0 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_0\n"
+        addJson "Debug" "v7_0"
+	set CMD "firmware download sftp coldboot directory NOS file $TARGET_VERSION host $FILESERVER user $SFTP_USERNAME use-vrf $VRF"
+} elseif { $major == 7 && $minor == 1 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_1\n"
+        addJson "Debug" "v7_1"
+	set CMD "firmware download sftp coldboot directory NOS file $TARGET_VERSION host $FILESERVER user $SFTP_USERNAME use-vrf $VRF"
+} elseif { $major == 7 && $minor == 2 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_2\n"
+        addJson "Debug" "v7_2"
+	set CMD "firmware download sftp coldboot directory NOS file $TARGET_VERSION host $FILESERVER user $SFTP_USERNAME use-vrf $VRF"
+} elseif { $major == 7 && $minor == 3 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_3\n"
+        addJson "Debug" "v7_3"
+	set CMD "firmware download sftp coldboot directory NOS file $TARGET_VERSION host $FILESERVER user $SFTP_USERNAME use-vrf $VRF"
+} else {
+        send_log "\nSCRIPT: Booted unexpected version of NOS\n"
+        addJson "Debug" "unknown_NOS"
+	set CMD "firmware download sftp coldboot directory NOS file $TARGET_VERSION host $FILESERVER user $SFTP_USERNAME use-vrf $VRF"
+}
+
+addJson "CMD" $CMD
+
+send "$CMD\n"
+expect { 
+	-re "Password:" 
+	{
+		send "$SFTP_PASSWORD\n"
+		send_log "\nSCRIPT: Entering the password\n"
+	}
+	-re "syntax error" 
+	{
+		# If we see the synatx error it might be because the command changed. 
+		# The VRF option was added in NOS version 7. This might be NOS version 6.
+		# If there is a change in future NOS, it could be handeled here.
+		logandstderr "\nSCRIPT_ERROR: The CLI for downloading firmware has changed. Exiting\n"
+		exitJson 1 "cli_syntax_error"
+	}
+}
+
+# If we are down-grading the NOS, we can run into an error state where the default-configuraiton 
+# is requested. We will exit if this is the case instead of causing harm by specifying a default.
+expect {
+	-re "Do you want to continue" 
+	{
+		send_log "\nSCRIPT: Do you want to continue? Yeah I do!\n"
+		send "yes\n"
+		exp_continue
+	}
+	-re "Preparing packages for installation"
+	{
+		send "show clock\n"
+		send_log "\nSCRIPT: Preparing packages for installation\n"
+		send "exit\n"
+		addJson "installingPackages:" "True"
+		exitJson 0 "NoError"
+	}
+	-re "System settings check passed"
+	{
+		send_log "\nSCRIPT: System setting check passed\n"
+		addJson "SystemSettingCheckPassed:" "True"
+		exitJson 0 "NoError"
+	}
+	-re "specify the default-config option in the command-line for download" 
+	{
+		logandstderr "\nSCRIPT_ERROR: default-config option is requested\n"
+		logandstderr "\nSCRIPT: If downgrading the NOS, you might need to do this manually.\n"
+		logandstderr "\nSCRIPT: We don't want to automatically erase your configuration.\n"
+		logandstderr "\nSCRIPT: Exiting Script\n"
+                send "exit\n"
+		exitJson 1 "default-config_requested"
+	}
+	-re "The preinstall script failed" 
+	{
+		logandstderr "\nSCRIPT_ERROR: Preinstall script failed. Exiting\n"
+                send "exit\n"
+		exitJson 1 "preinstall_script_failed"
+	}
+	-re "The server is inaccessible or firmware path is invalid"
+	{
+		logandstderr "\nSCRIPT_ERROR: Server inaccessible or firmware path is invalid. Exiting\n"
+		exitJson 1 "server_inaccessible_or_firmware_path_invalid"
+
+	}
+	-re "Firmwaredownload failed because another session is running"
+	{
+		logandstderr "\nSCRIPT_ERROR: Firmwaredownload failed because another session is running. Exiting\n"
+                exitJson 1 "firmwaredownload_already_running"
+	}
+	timeout
+	{
+		send_log "\nSCRIPT: timeout\n"
+		exitJson 1 "timeout_Error"
+	}
+}
+
+send_user "\n\nShould be impossible to get here.\n\n"
+exit 1

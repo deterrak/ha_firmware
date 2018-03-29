@@ -1,0 +1,162 @@
+#!/usr/bin/expect -f
+#
+# This script has been tested upgrading from version 5.0.1a to 6.0.2e!
+# Some upgrade paths are known to be incompatible especially 5.0.1a to 6.0.2b.
+# Ensure upgrade path compatiblity before using in a production environment.
+#
+# This script requires that switch login and sftp server logins be the same.
+# This script requires that the upgrade package be untarred in /tftpboot on the target server
+#
+# If the correct number of arguements was not passed in, please exit.
+if { $argc != 7 } {
+   puts "Usage: backupConfig.exp <switch-ip> <tftp-server-ip> <username> <password> <SFTP_USERNAME> <SFTP_PASSWORD> <VRF>"
+   exit 99
+}
+
+proc exitJson { exitLevel message } {
+	send_user "\"Error\": \"$message\"\n"
+	send_user "\}\n"
+	send "exit\n"
+	exit $exitLevel
+}
+
+proc addJson { key value } {
+        send_user "\n\"$key\": \"$value\","
+}
+
+
+set timeout 600
+set PROMPT {\# $}
+set SWITCH_IP [lindex $argv 0 ]
+set FILESERVER [lindex $argv 1 ]
+set PREFIX "_CFG"
+set CFGNAME "$SWITCH_IP$PREFIX"
+set USERNAME [lindex $argv 2]
+set PASSWORD [lindex $argv 3]
+set SFTP_USERNAME [lindex $argv 4]
+set SFTP_PASSWORD [lindex $argv 5]
+set VRF [lindex $argv 6]
+log_user 0
+log_file -noappend "/home/stanley/updateFirmwareLogs/$SWITCH_IP.cfgBackup"
+
+send_user "{"
+addJson "SwitchIP" $SWITCH_IP
+addJson "Logfile" "/home/stanley/updateFirmwareLogs/$SWITCH_IP.cfgBackup"
+
+spawn ssh $USERNAME@$SWITCH_IP
+
+# DETERRAK - Added first time SSH authentication
+expect {
+        -re "\[P|p]assword:" 
+	{
+                send "$PASSWORD\n"
+                send_log "\nSCRIPT: logging in using the provided password\n"
+		expect -re "$PROMPT"
+		send "terminal monitor\n"
+		expect -re "$PROMPT"
+        }
+        "yes/no" 
+	{
+                send "yes\n"
+                send_log "\nSCRIPT: Logging in using SSH for the first time!\n"
+                expect "password:"
+                send "$PASSWORD\n"
+		expect -re "$PROMPT"
+        }
+	timeout 
+	{
+		send_log "\nSCRIPT_ERROR: login timeout\n"
+		send_log "\nSCRIPT: Exiting Script\n"
+		exitJson 1 "login timeout"
+	}
+}
+
+# Assume the fileserver is not reachable, then set to true if it is reachable.
+set REACHABLE "False"
+send_log "\nSCRIPT: tesing IP connection to the fileserver\n"
+send "ping $FILESERVER vrf mgmt-vrf count 1\n"
+
+expect {
+	-re "0% packet loss" 
+	{
+		set REACHABLE "True"
+		send_log "\nSCRIPT: File Server $FILESERVER is reachable!\n"
+		expect -re "$PROMPT" 
+	}
+	"syntax error"	
+	{
+		send_log "\nSCRIPT_ERROR: the CLI for ping has changed."
+		send_log "\nSCRIPT: Exiting Script\n"
+		exitJson 1 "cli_syntax_error"
+	}
+	timeout 
+	{
+		send_log "\nSCRIPT_ERROR: Timeout, File Server $FILESERVER is not reachable"
+		send_log "\nSCRIPT: Exiting Script\n"
+		exitJson 1 "timeout"
+	}
+}
+
+addJson "FileServerReachable" $REACHABLE
+
+# Get the current NOS version.
+send "show version | include System\\ Version\n"
+expect -re "$PROMPT"
+set NOS_VERSION [ lindex $expect_out(buffer) 9 ] 
+addJson "CurrentFirmware" $NOS_VERSION
+send_log "\nSCRIPT: Current NOS_VERSION = $NOS_VERSION \n"
+
+# Adjust the download command if it is NOS version 6
+# Example command is:
+# copy running-config scp://firmware:qwertypassword@192.168.1.10/192.168.1.31.conf
+set NOS_IS_VER_5 [ string match 5\.*\.* $NOS_VERSION ]
+set NOS_IS_VER_6 [ string match 6\.*\.* $NOS_VERSION ]
+set NOS_IS_VER_7 [ string match 7\.*\.* $NOS_VERSION ]
+
+if { $NOS_IS_VER_5  == 1 } {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 5\n"
+        set CMD "copy running-config scp://$SFTP_USERNAME:$SFTP_PASSWORD@$FILESERVER/CFGs/$CFGNAME"
+        addJson "BackupCommand" $CMD
+} elseif { $NOS_IS_VER_6  == 1 } {
+	send_log "\nSCRIPT: Adjusting CLI for NOS version 6\n"
+	set CMD "copy running-config scp://$SFTP_USERNAME:$SFTP_PASSWORD@$FILESERVER/CFGs/$CFGNAME"
+        addJson "BackupCommand" $CMD
+} elseif { $NOS_IS_VER_7 == 1 } {
+	send_log "\nSCRIPT: Adjusting CLI for NOS version 7\n"
+	set CMD "copy running-config scp://$SFTP_USERNAME:$SFTP_PASSWORD@$FILESERVER/CFGs/$CFGNAME"
+        addJson "BackupCommand" $CMD
+} else {
+	# if the string match on the SW version did not match, give it a try anyway.
+        set CMD "copy running-config scp://$SFTP_USERNAME:$SFTP_PASSWORD@$FILESERVER/CFGs/$CFGNAME"
+        addJson "BackupCommand" $CMD
+}
+
+
+send "$CMD\n"
+set BACKUP_STATE "False"
+set timeout 30
+expect { 
+	-re "successfully" 
+	{
+		send_log "\nSCRIPT:  Running configuration file has been uploaded successfully to the remote location.\n"
+		set BACKUP_STATE "True"
+		exp_continue
+	}
+	"syntax error" 
+	{
+		# If we see the synatx error it might be because the command changed. 
+		send_log "\nSCRIPT_ERROR: The CLI for backing up configurations has changed."
+		send_log "\nSCRIPT: Exiting Script\n"
+		exitJson 1 "cli_syntax_error"
+	}
+	$PROMPT
+	{
+	}
+	timeout
+	{
+		exitJson 1 "timeout"
+	}
+}
+addJson "BackupStateOK" $BACKUP_STATE
+send_log "\nSCRIPT: exit expect script with success!\n"
+exitJson 0 "NoError"

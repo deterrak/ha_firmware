@@ -1,0 +1,57 @@
+{
+  "runner_type": "mistral-v2",
+  "name": "verifyFirmwareMist",
+  "parameters": {
+    "skip_notify": {
+      "default": [],
+      "type": "array",
+      "description": "List of tasks to skip notifications for."
+    },
+    "task": {
+      "type": "string",
+      "description": "The name of the task to run for reverse workflow."
+    },
+    "switchIP": {
+      "required": true,
+      "type": "string",
+      "description": "The IP address of the switch"
+    },
+    "workflow": {
+      "type": "string",
+      "description": "The name of the workflow to run if the entry_point is a workbook of many workflows. The name should be in the format \"<pack_name>.<action_name>.<workflow_name>\". If entry point is a workflow or a workbook with a single workflow, the runner will identify the workflow automatically."
+    },
+    "environment": {
+      "default": "default",
+      "type": "string",
+      "description": "The default environment is required by CLI CRUD"
+    },
+    "command": {
+      "default": "show version | inc Firmware",
+      "type": "string",
+      "description": "Command used to get the firmware version"
+    },
+    "context": {
+      "default": {},
+      "type": "object",
+      "description": "Additional workflow inputs."
+    },
+    "upgradeGroup": {
+      "required": true,
+      "type": "string",
+      "description": "The upgrade group is an identifier used to know which excel file sheet the switch IP resides."
+    },
+    "excelFileName": {
+      "default": "/home/stanley/firmwareVersions.xlsx",
+      "type": "string",
+      "description": "The Excel file name"
+    }
+  },
+  "tags": [],
+  "enabled": true,
+  "entry_point": "workflows/verifyFirmwareMist.yaml",
+  "notify": {},
+  "uid": "action:ha_firmware:verifyFirmwareMist",
+  "pack": "ha_firmware",
+  "ref": "ha_firmware.verifyFirmwareMist",
+  "description": "Verify that the firmware was upgraded."
+}

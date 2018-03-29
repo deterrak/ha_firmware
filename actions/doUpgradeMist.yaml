@@ -1,0 +1,46 @@
+{
+  "runner_type": "mistral-v2",
+  "name": "doUpgradeMist",
+  "parameters": {
+    "skip_notify": {
+      "default": [],
+      "type": "array",
+      "description": "List of tasks to skip notifications for."
+    },
+    "task": {
+      "type": "string",
+      "description": "The name of the task to run for reverse workflow."
+    },
+    "sheet": {
+      "type": "string",
+      "description": "The Excel file's sheet name"
+    },
+    "workflow": {
+      "type": "string",
+      "description": "The name of the workflow to run if the entry_point is a workbook of many workflows. The name should be in the format \"<pack_name>.<action_name>.<workflow_name>\". If entry point is a workflow or a workbook with a single workflow, the runner will identify the workflow automatically."
+    },
+    "IP": {
+      "required": true,
+      "type": "string",
+      "description": "The switches management IPv4 address"
+    },
+    "excel_file": {
+      "default": "/home/stanley/firmwareVersions.xlsx",
+      "type": "string",
+      "description": "The absolute path to the excel file."
+    },
+    "context": {
+      "default": {},
+      "type": "object",
+      "description": "Additional workflow inputs."
+    }
+  },
+  "tags": [],
+  "enabled": true,
+  "entry_point": "workflows/doUpgradeMist.yaml",
+  "notify": {},
+  "uid": "action:ha_firmware:doUpgradeMist",
+  "pack": "ha_firmware",
+  "ref": "ha_firmware.doUpgradeMist",
+  "description": "Do the firmware upgrade for a switch"
+}

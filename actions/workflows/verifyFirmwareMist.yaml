@@ -1,0 +1,43 @@
+---
+version: '2.0'
+
+ha_firmware.verifyFirmwareMist:
+  
+  input:
+    - switchIP
+    - upgradeGroup
+    - excelFileName
+    - command
+    - environment
+  tasks:
+    getFwVer:
+      # [105, 26]
+      action: clicrud.ops_command
+      retry:
+            delay: 1
+            count: 5
+      input:
+        host: <% $.switchIP %>
+        command: <% $.command %>
+        environment: <% $.environment %>
+      publish:
+        FwVer: <% task(getFwVer).result.result.split(" ").skip(7).aggregate($1) %>
+      on-success:
+        - getTime
+    getTime:
+      # [105, 128]
+      action: core.local
+      input:
+        cmd: 'date +%D\ %T'
+      publish:
+        date: <% task(getTime).result.stdout %>
+      on-success:
+        - WriteData
+    WriteData:
+      # [105, 230]
+      action: excel.set_variables
+      input:
+        key: <% $.switchIP %>
+        sheet: <% $.upgradeGroup %>
+        excel_file: <% $.excelFileName %>
+        variables: '{ "currentFirmwareVer":"<% $.FwVer %>","date":"<% $.date %>"}'

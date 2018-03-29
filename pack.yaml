@@ -1,0 +1,6 @@
+---
+name: ha_firmware 
+description: Provides workflows supporting VDX firmware upgrades in High Availability environments.
+version: 1.0.1
+author : Kevin DeTerra
+email : info@stackstorm.com

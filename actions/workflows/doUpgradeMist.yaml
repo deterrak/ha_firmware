@@ -1,0 +1,74 @@
+---
+version: '2.0'
+
+ha_firmware.doUpgradeMist:
+  input:
+    - IP
+    - excel_file
+    - sheet
+  tasks:
+    getSwitchVars:
+      # [235, 26]
+      action: excel.get_variables
+      input:
+        sheet: <% $.sheet %>
+        excel_file: <% $.excel_file %>
+        key: <% $.IP %>
+      publish:
+        firmwareName: <% task(getSwitchVars).result.result.updateFirmwareTo %>
+        username: <% task(getSwitchVars).result.result.username %>
+        password: <% task(getSwitchVars).result.result.password %>
+      on-success:
+        - getFileServerVars
+    getFileServerVars:
+      # [235, 128]
+      action: excel.get_variables
+      input:
+        sheet: "FileServerVars"
+        excel_file: <% $.excel_file %>
+        key: "sftp"
+      publish:
+        fileServerVRF: <% task(getFileServerVars).result.result.fileServerVRF %>
+        fileServerIP: <% task(getFileServerVars).result.result.fileServerIP %>
+        fileServerUsername: <% task(getFileServerVars).result.result.fileServerUsername %>
+        fileserverPassword: <% task(getFileServerVars).result.result.fileServerPassword %>        
+      on-success:
+        - backupConfig
+    backupConfig:
+      # [235, 230]
+      action: core.local
+      input:
+        timeout: 180
+        cmd: '/usr/bin/expect /home/stanley/backupConfig.exp  <% $.IP %> <% $.fileServerIP %> <% $.username %> <% $.password %> <% $.fileServerUsername %> <% $.fileserverPassword%> <% $.fileServerVRF%>'
+      on-success:
+        - upgradeFirmWare
+    upgradeFirmWare:
+      # [235, 332]
+      action: core.local
+      input:
+        timeout: 900
+        cmd: '/usr/bin/expect /home/stanley/updateFirmwareSimple.exp  <% $.IP %> <% $.fileServerIP %> <% $.firmwareName %> <% $.username %> <% $.password %> <% $.fileServerUsername %> <% $.fileserverPassword%> <% $.fileServerVRF%>'
+      on-error:
+        - failed
+      on-success:
+        - waitForReboot
+    failed:
+      # [365, 434]
+      action: core.noop
+      on-complete:
+        - fail
+    waitForReboot:
+      # [105, 430]
+      action: core.noop
+      wait-before: 2000
+      on-success:
+        - monitorReboot
+    monitorReboot:
+      # [105, 534]
+      action: core.local
+      retry: 
+        count: 3
+        delay: 120
+      input:
+        cmd: '/usr/bin/expect /home/stanley/monitorBoot.exp  <% $.IP %> <% $.username %> <% $.password %>' 
+

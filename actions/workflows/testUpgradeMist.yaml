@@ -1,0 +1,93 @@
+---
+version: '2.0'
+
+ha_firmware.testUpgradeMist:
+  
+  input:
+    - switchIP
+    - excelFileName
+    - upgradeGroup
+  tasks:
+    getSwitchVars:
+      # [645, 26]
+      action: excel.get_variables
+      input:
+                sheet: <% $.upgradeGroup %>
+                excel_file: <% $.excelFileName %>
+                key: <% $.switchIP %>
+      publish:
+        testIP: <% task(getSwitchVars).result.result.testIp %>
+        user: <% task(getSwitchVars).result.result.username %>
+        pass: <% task(getSwitchVars).result.result.password %>
+        vrf: <% task(getSwitchVars).result.result.vrf %>
+        uplinks: <% task(getSwitchVars).result.result.uplinks.split(',') %>
+        islLinks: <% task(getSwitchVars).result.result.islLinks.split(',') %>
+        serverLinks: <% task(getSwitchVars).result.result.serverLinks.split(',') %>
+      on-success:
+        - validateUpLinks
+        - validateIslLinks
+        - validateServerLinks
+    validateUpLinks:
+      # [350, 150]
+      with-items: int in <% $.uplinks %>
+      action: ha_firmware.validateInterface
+      input:
+        mgmt_ip: <% $.switchIP %>
+        username: <% $.user %>
+        password: <% $.pass %>
+        intf_type: <% $.int.split(':')[0] %>
+        intf_name: <% $.int.split(':')[1] %>
+        intf_state: "up"
+      on-success:
+        - LinkUpPingGW
+    validateIslLinks:
+      # [645, 150]
+      with-items: int in <% $.islLinks %>
+      action: ha_firmware.validateInterface
+      input:
+        mgmt_ip: <% $.switchIP %>
+        username: <% $.user %>
+        password: <% $.pass %>
+        intf_type: <% $.int.split(':')[0] %>
+        intf_name: <% $.int.split(':')[1] %>
+        intf_state: "up"
+      on-success:
+        - LinkUpPingGW
+    validateServerLinks:
+      # [900, 150]
+      with-items: int in <% $.serverLinks %>
+      action: ha_firmware.validateInterface
+      input:
+        mgmt_ip: <% $.switchIP %>
+        username: <% $.user %>
+        password: <% $.pass %>
+        intf_type: <% $.int.split(':')[0] %>
+        intf_name: <% $.int.split(':')[1] %>
+        intf_state: "up"
+      on-success:
+        - LinkUpPingGW
+    LinkUpPingGW:
+      # [645, 330]
+      join: all
+      action: network_essentials.ping_vrf_targets
+      input:
+        mgmt_ip: <% $.switchIP %>
+        targets: <% $.testIP.split(",") %>
+        vrf: <% $.vrf %>
+        username: <% $.user %>
+        password: <% $.pass %>
+      publish:
+        pingResultsJson: <% task(LinkUpPingGW).result.result.replace("\\n", "") %>
+      on-success:
+        - json_to_dict
+    json_to_dict:
+      # [645, 430]
+      action: ha_firmware.convert_json_to_dict
+      input:
+        jsonString: <% $.pingResultsJson %>
+      on-success:
+        - pingOK
+    pingOK:
+      # [645, 530]
+      action: core.local cmd='echo ping OK!'
+

@@ -1,0 +1,252 @@
+#!/usr/bin/expect -f  
+
+# This script has been tested upgrading from version 5.0.1a to 6.0.2e!
+# Some upgrade paths are known to be incompatible especially 5.0.1a to 6.0.2b.
+# Ensure upgrade path compatiblity before using in a production environment.
+#
+# This script requires that switch login and sftp server logins be the same.
+# This script requires that the upgrade package be untarred in /tftpboot on the target server
+#
+# If the correct number of arguements was not passed in, please exit.
+if { $argc != 3 } {
+   puts "Usage: backupConfig.exp <switch-ip> <username> <password>" 
+   exit 99
+}
+
+proc addJson { key value } {
+        send_user "\n\"$key\": \"$value\","
+}
+
+proc exitJson { exitLevel message } {
+	send_user "\n\"Error\": \"$message\"\n"
+	send_user "\}\n"
+	send "exit\n"
+	exit $exitLevel
+}
+
+log_user 0
+set timeout 15
+
+set PROMPT "(\\S+#)\\s\$" 
+#set PROMPT {\S+#\s$}
+set SWITCH_IP [lindex $argv 0 ]
+set USERNAME [lindex $argv 1]
+set PASSWORD [lindex $argv 2]
+log_file -noappend "/home/stanley/updateFirmwareLogs/$SWITCH_IP.bootMonitor"
+#set BACKUP_STATE "Unknown"
+
+send_user "{"
+addJson "SwitchIP" $SWITCH_IP
+spawn ssh $USERNAME@$SWITCH_IP
+
+# DETERRAK - Added first time SSH authentication
+expect {
+        -re "\[P|p]assword:" 
+	{
+                send "$PASSWORD\n"
+                send_log "\nSCRIPT: logging in using the provided password\n"
+		expect -re "$PROMPT"
+		#send "terminal monitor\n"
+		#expect -re "$PROMPT"
+        }
+        -re "yes/no" 
+	{
+                send "yes\n"
+                send_log "\nSCRIPT: Logging in using SSH for the first time!\n"
+                expect "password:"
+                send "$PASSWORD\n"
+		expect { 
+			-re "$PROMPT" {send_user "PROMPT OK\n" } 
+			timeout { send_user "TIMEOUT\n"  }  }
+        }
+	timeout 
+	{
+		send_log "\nSCRIPT_ERROR: login timeout. Exiting\n"
+		exitJson 1 "login timeout"
+	}
+}
+addJson "Logged_in" "True"
+
+# Monitor the boot process
+set VCS_REJOIN "False"
+send_log "\nSCRIPT: tesing IP connection to the fileserver\n"
+#send "\nterminal monitor\n\n"
+send "\n"
+expect {
+	-re $PROMPT
+	{
+		send "\n"
+	}
+	timeout
+	{
+		send_log "\nSCRIPT_ERROR: Prompt timeout. Exiting\n"
+		addJson "timeout" $expect_out(buffer)
+		#exitJson 1 "Prompt did not match. timeout"
+	}
+}
+
+# Disable 'more' paging
+send "\nterminal length 0\n"
+expect -re $PROMPT
+
+# Get the switch Uptime
+send "\nshow system | inc Up\n"
+expect -indices -re $PROMPT
+#send_user "\n Entire buffer is: <$expect_out(buffer)>\n"
+#send_user "Prompt is matching this : <$expect_out(1, string)>\n"
+
+set UPTIME [ lindex $expect_out(buffer) 10 ]
+addJson "Uptime" $UPTIME
+
+# Get the current NOS version.
+#send "show version | include System\\ Version\n"
+send "\nshow version | include Firmware\n"
+expect -indices -re "$PROMPT"
+set VERSION [ lindex $expect_out(buffer) 7 ]
+set NOS_VERSION ""
+append NOS_VERSION "nos" $VERSION 
+send_log "\nSCRIPT: Current NOS_VERSION = $NOS_VERSION \n"
+
+set result [regexp {[A-Za-z]+([0-9]).([0-9]+).([0-9a-z]+)} $NOS_VERSION match major minor revision ]
+#puts "maj: $major" ; puts "min: $minor" ; puts "revision: $revision"
+
+if { $result == 0 } {
+	send_log "SCRIPT: Warning: this might be version 7.3?\n"
+	send_log "SCRIPT: problem parsing NOS_VERSION trying to parse again.\n"
+	set VERSION [ lindex $expect_out(buffer) 8 ]
+	set NOS_VERSION ""
+	append NOS_VERSION "nos" $VERSION
+	set result [regexp {[A-Za-z]+([0-9]).([0-9]+).([0-9a-z]+)} $NOS_VERSION match major minor revision ]
+	if { $result == 0 } {
+		send_log "Error: failed to parse the NOS version #NOS_VERSION"
+		exit 1
+	} else {
+		send_log "SCRIPT: Success! Parsed the NOS version on the second try.\n"
+	}
+}
+
+
+# Adjust the download command if it is NOS version 6
+if { $major == 6 } {
+	send_log "\nSCRIPT: Adjusting CLI for NOS version 6\n"
+	addJson "Debug" "v6"
+} elseif { $major == 7  && $minor == 0 }  {
+	send_log "\nSCRIPT: Adjusting CLI for NOS version 7_0\n"
+	addJson "Debug" "v7_0"
+} elseif { $major == 7 && $minor == 1 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_1\n"
+	addJson "Debug" "v7_1"
+} elseif { $major == 7 && $minor == 2 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_2\n"
+	addJson "Debug" "v7_2"
+} elseif { $major == 7 && $minor == 3 }  {
+        send_log "\nSCRIPT: Adjusting CLI for NOS version 7_3\n"
+	addJson "Debug" "v7_3"
+} else {
+	send_log "\nSCRIPT: Booted unexpected version of NOS\n"
+	addJson "Debug" "unknown_NOS"
+}
+addJson "BootedFirmware" $NOS_VERSION 
+
+# Get the total number of  nodes
+send "\nshow vcs detail | include Total\n"
+expect -re "$PROMPT"
+if { $major == 6 && $minor == 0 } {
+        # tested -OK using 6.0.2e
+	set TOTAL_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 0 } {
+        # tested -OK using 7.0.0
+	set TOTAL_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 1 } {
+        # tested -OK using 7.1.0b
+	set TOTAL_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 2 } {
+        # tested -OK using 7.2.0
+	set TOTAL_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 3 } {
+        # tested -OK using 7.3.0
+	set TOTAL_NODES [ lindex $expect_out(buffer) 12 ] 
+}
+send_log "\nSCRIPT: Total number of nodes = $TOTAL_NODES \n"
+addJson "TotalNumNodes" $TOTAL_NODES
+
+# Get the number of disconnected nodes
+send "\nshow vcs detail | include Disconnected\n"
+expect -re "$PROMPT"
+# Use the version to parse the CLI response
+if { $major == 6 && $minor == 0 } {
+        # tested -OK using 6.0.2e
+	set DISCONNECTED_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 0 } {
+        # tested -OK using 7.0.0
+	set DISCONNECTED_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 1 } {
+        # tested -OK using 7.1.0b
+	set DISCONNECTED_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 2 } {
+        # tested -OK using 7.2.0
+	set DISCONNECTED_NODES [ lindex $expect_out(buffer) 11 ] 
+} elseif { $major == 7 && $minor == 3 } {
+        # tested -OK using 7.3.0
+	set DISCONNECTED_NODES [ lindex $expect_out(buffer) 12 ] 
+}
+send_log "\nSCRIPT: Number of disconnected nodes = $DISCONNECTED_NODES \n"
+addJson "NumDisConnectedNodes" $DISCONNECTED_NODES
+
+# Get the VCS Status
+send "\nshow vcs detail | include VCS\\ Status\n"
+expect -re "$PROMPT"
+# Use the version to parse the CLI response
+if { $major == 6 && $minor == 0 } {
+        # tested -OK using 6.0.2e
+	set VCS_STATUS [ lindex $expect_out(buffer) 9 ]
+} elseif { $major == 7 && $minor == 0 } {
+        # tested -OK using 7.0.0
+	set VCS_STATUS [ lindex $expect_out(buffer) 9 ]
+} elseif { $major == 7 && $minor == 1 } {
+        # tested -OK using 7.1.0b
+	set VCS_STATUS [ lindex $expect_out(buffer) 9 ]
+} elseif { $major == 7 && $minor == 2 } {
+        # tested -OK using 7.2.0
+	set VCS_STATUS [ lindex $expect_out(buffer) 9 ]
+} elseif { $major == 7 && $minor == 3 } {
+        # tested -OK using 7.3.0
+	set VCS_STATUS [ lindex $expect_out(buffer) 10 ]
+} 
+send_log "\nSCRIPT: VCS_STATUS = $VCS_STATUS \n"
+addJson "VcsStatus" $VCS_STATUS
+
+# Get the cluster condition
+send "\nshow vcs detail | include Condition\n"
+expect -re "$PROMPT"
+# Use the version to parse the CLI response
+if { $major == 6 && $minor == 0 } {
+	# tested -OK using 6.0.2e
+	set CLUSTERCONDITION [ lindex $expect_out(buffer) 9 ] 
+} elseif { $major == 6 && $minor == 1 } {
+	# FIXME: Needs testing and verification
+	set CLUSTERCONDITION [ lindex $expect_out(buffer) 9 ] 
+} elseif { $major == 6 && $minor == 2 } {
+	# FIXME: Needs testing and verification
+	set CLUSTERCONDITION [ lindex $expect_out(buffer) 9 ] 
+} elseif { $major == 7 && $minor == 0 } {
+	# tested -OK using 7.0.0
+	set CLUSTERCONDITION [ lindex $expect_out(buffer) 9 ] 
+} elseif { $major == 7 && $minor == 1 } {
+	# tested -OK using 7.1.0b
+	set CLUSTERCONDITION [ lindex $expect_out(buffer) 8 ] 
+} elseif { $major == 7 && $minor == 2 } {
+	# tested -OK using 7.2.0
+        set CLUSTERCONDITION [ lindex $expect_out(buffer) 9 ]
+} elseif { $major == 7 && $minor == 3 } {
+	# tested -OK using 7.3.0
+        set CLUSTERCONDITION [ lindex $expect_out(buffer) 10 ]
+}
+
+
+send_log "\nSCRIPT: Cluster Condition = $CLUSTERCONDITION \n"
+addJson "ClusterCondition" $CLUSTERCONDITION
+
+# Exit the script with success
+send_log "\nSCRIPT: exit expect script with success!\n"
+exitJson 0 "NoError"

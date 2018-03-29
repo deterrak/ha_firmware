@@ -1,0 +1,11 @@
+---
+name: "convert_json_to_dict"
+runner_type: "run-python"
+description: "converts JSON to a Python Dictionary"
+enabled: true
+entry_point: "convert_json_to_dict.py"
+parameters:
+  jsonString:
+    type: "string"
+    description: "a JSON Payload"
+    required: true

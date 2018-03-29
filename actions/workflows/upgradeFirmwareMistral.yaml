@@ -1,0 +1,53 @@
+---
+version: '2.0'
+
+ha_firmware.upgradeFirmwareMistral:
+    input:
+        - Sheet
+        - excelFileName
+    tasks:
+        getSwitchIPs:
+            # [105, 26]
+            action: excel.get_keys_for_rows
+            input:
+                sheet: <% $.Sheet %>
+                excel_file: <% $.excelFileName %>
+            publish:
+                switchIPs: <% task(getSwitchIPs).result.result %>
+            on-success:
+                - waitForSsh
+        waitForSsh:
+            # [105, 128]
+            description: "loop over a list of switch IP addresses"
+            with-items: IP in <% $.switchIPs %>
+            action: linux.wait_for_ssh hostname='<% $.IP %>' username='admin' password='password' port=22 timeout=10
+            publish:
+                switch_ip: <% task(waitForSsh).result %>
+            on-success:
+                - testNetwork
+            on-error:
+                - fail
+        testNetwork:
+            # [105, 230]
+            with-items: IP in <% $.switchIPs %>
+            action: ha_firmware.testUpgradeMist switchIP=<% $.IP %> excelFileName=<% $.excelFileName %> upgradeGroup=<% $.Sheet %>
+            on-success:
+                - upgradeFirmware
+            on-error:
+                - fail
+        upgradeFirmware:
+            # [105, 332]
+            # upgrade each switch in a list of switches
+            with-items: IP in <% $.switchIPs %>
+            action: ha_firmware.doUpgradeMist
+            input:
+                IP: <% $.IP %>
+                excel_file: <% $.excelFileName %>
+                sheet: <% $.Sheet %>
+            on-success:
+                - verifyFirmware
+        verifyFirmware:
+            # [105, 434]
+            with-items: IP in <% $.switchIPs %>
+            action: ha_firmware.verifyFirmwareMist switchIP=<% $.IP %> excelFileName=<% $.excelFileName %> upgradeGroup=<% $.Sheet %>
+
